@@ -3,6 +3,61 @@ document.addEventListener("DOMContentLoaded", () => {
   const activitySelect = document.getElementById("activity");
   const signupForm = document.getElementById("signup-form");
   const messageDiv = document.getElementById("message");
+  // Helper to escape HTML (prevent XSS)
+  function escapeHtml(str) {
+    return String(str)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/\"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+
+  // Build the HTML for an activity card
+  function buildCardHtml(name, details) {
+    const spotsLeft = details.max_participants - details.participants.length;
+
+    const participantsHtml =
+      details.participants && details.participants.length
+        ? `<p><strong>Participants:</strong></p><ul>${details.participants
+            .map((p) => `<li>${escapeHtml(p)}</li>`)
+            .join("")}</ul>`
+        : `<p><strong>Participants:</strong> None</p>`;
+
+    return `
+      <h4>${escapeHtml(name)}</h4>
+      <p>${escapeHtml(details.description)}</p>
+      <p><strong>Schedule:</strong> ${escapeHtml(details.schedule)}</p>
+      <p><strong>Availability:</strong> ${spotsLeft} spots left</p>
+      ${participantsHtml}
+    `;
+  }
+
+  // Helper to find a card element for an activity by name
+  function findCardByName(name) {
+    return Array.from(activitiesList.children).find((c) => c.dataset.activity === name);
+  }
+
+  // Update or create a single activity card
+  function upsertActivityCard(name, details) {
+    let card = findCardByName(name);
+    if (!card) {
+      card = document.createElement("div");
+      card.className = "activity-card";
+      card.dataset.activity = name;
+      activitiesList.appendChild(card);
+
+      // Also ensure the select contains this activity
+      const exists = Array.from(activitySelect.options).some((o) => o.value === name);
+      if (!exists) {
+        const option = document.createElement("option");
+        option.value = name;
+        option.textContent = name;
+        activitySelect.appendChild(option);
+      }
+    }
+    card.innerHTML = buildCardHtml(name, details);
+  }
 
   // Function to fetch activities from API
   async function fetchActivities() {
@@ -13,27 +68,9 @@ document.addEventListener("DOMContentLoaded", () => {
       // Clear loading message
       activitiesList.innerHTML = "";
 
-      // Populate activities list
+      // Render all activities (initial load)
       Object.entries(activities).forEach(([name, details]) => {
-        const activityCard = document.createElement("div");
-        activityCard.className = "activity-card";
-
-        const spotsLeft = details.max_participants - details.participants.length;
-
-        activityCard.innerHTML = `
-          <h4>${name}</h4>
-          <p>${details.description}</p>
-          <p><strong>Schedule:</strong> ${details.schedule}</p>
-          <p><strong>Availability:</strong> ${spotsLeft} spots left</p>
-        `;
-
-        activitiesList.appendChild(activityCard);
-
-        // Add option to select dropdown
-        const option = document.createElement("option");
-        option.value = name;
-        option.textContent = name;
-        activitySelect.appendChild(option);
+        upsertActivityCard(name, details);
       });
     } catch (error) {
       activitiesList.innerHTML = "<p>Failed to load activities. Please try again later.</p>";
@@ -62,6 +99,21 @@ document.addEventListener("DOMContentLoaded", () => {
         messageDiv.textContent = result.message;
         messageDiv.className = "success";
         signupForm.reset();
+
+        // Update only the activity card that was signed up to
+        try {
+          const aResp = await fetch(`/activities/${encodeURIComponent(activity)}`);
+          if (aResp.ok) {
+            const details = await aResp.json();
+            upsertActivityCard(activity, details);
+          } else {
+            // Fallback: refresh all activities
+            await fetchActivities();
+          }
+        } catch (e) {
+          console.error("Failed to refresh single activity:", e);
+          await fetchActivities();
+        }
       } else {
         messageDiv.textContent = result.detail || "An error occurred";
         messageDiv.className = "error";
