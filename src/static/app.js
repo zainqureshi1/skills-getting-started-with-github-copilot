@@ -4,6 +4,126 @@ document.addEventListener("DOMContentLoaded", () => {
   const signupForm = document.getElementById("signup-form");
   const messageDiv = document.getElementById("message");
 
+  // Handle participant delete (unregister)
+  activitiesList.addEventListener("click", async (event) => {
+    const btn = event.target.closest(".delete-icon");
+    if (!btn) return;
+    const card = event.target.closest(".activity-card");
+    if (!card) return;
+    const activity = card.dataset.activity;
+    const email = btn.getAttribute("data-email");
+    if (!activity || !email) return;
+    btn.disabled = true;
+    btn.innerHTML = "...";
+    try {
+      const response = await fetch(`/activities/${encodeURIComponent(activity)}/unregister?email=${encodeURIComponent(email)}`, {
+        method: "POST",
+      });
+      const result = await response.json();
+      if (response.ok) {
+        messageDiv.textContent = result.message || "Participant removed.";
+        messageDiv.className = "success";
+        // Refresh the activity card
+        try {
+          const aResp = await fetch(`/activities/${encodeURIComponent(activity)}`);
+          if (aResp.ok) {
+            const details = await aResp.json();
+            upsertActivityCard(activity, details);
+          } else {
+            await fetchActivities();
+          }
+        } catch (e) {
+          await fetchActivities();
+        }
+      } else {
+        messageDiv.textContent = result.detail || "Failed to remove participant.";
+        messageDiv.className = "error";
+      }
+      messageDiv.classList.remove("hidden");
+      setTimeout(() => messageDiv.classList.add("hidden"), 5000);
+    } catch (error) {
+      messageDiv.textContent = "Error removing participant.";
+      messageDiv.className = "error";
+      messageDiv.classList.remove("hidden");
+    }
+    btn.disabled = false;
+    btn.innerHTML = "&#x2716;";
+  });
+
+  // Helper to escape HTML (prevent XSS)
+  function escapeHtml(str) {
+    return String(str)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/\"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+
+  // Build the HTML for an activity card
+  function buildCardHtml(name, details) {
+    const spotsLeft = details.max_participants - details.participants.length;
+
+    const participantsHtml =
+      details.participants && details.participants.length
+        ? `<p><strong>Participants:</strong></p>
+          <ul class="participants-list">
+            ${details.participants
+              .map((p) => {
+                const local = p.split("@")[0] || "";
+                const initials = local
+                  .split(/[\.\-_]/)
+                  .map((s) => s.charAt(0))
+                  .join("")
+                  .slice(0, 2)
+                  .toUpperCase();
+                return `<li>
+                  <span class="participant-chip" title="${escapeHtml(p)}">
+                    <span class="avatar">${escapeHtml(initials)}</span>
+                    <span class="email-text">${escapeHtml(p)}</span>
+                    <button class="delete-icon" title="Remove participant" data-email="${escapeHtml(p)}">&#x2716;</button>
+                  </span>
+                </li>`;
+              })
+              .join("")}
+          </ul>`
+        : `<p><strong>Participants:</strong> None</p>`;
+
+    return `
+      <h4>${escapeHtml(name)}</h4>
+      <p>${escapeHtml(details.description)}</p>
+      <p><strong>Schedule:</strong> ${escapeHtml(details.schedule)}</p>
+      <p><strong>Availability:</strong> ${spotsLeft} spots left</p>
+      ${participantsHtml}
+    `;
+  }
+
+  // Helper to find a card element for an activity by name
+  function findCardByName(name) {
+    return Array.from(activitiesList.children).find((c) => c.dataset.activity === name);
+  }
+
+  // Update or create a single activity card
+  function upsertActivityCard(name, details) {
+    let card = findCardByName(name);
+    if (!card) {
+      card = document.createElement("div");
+      card.className = "activity-card";
+      card.dataset.activity = name;
+      activitiesList.appendChild(card);
+
+      // Also ensure the select contains this activity
+      const exists = Array.from(activitySelect.options).some((o) => o.value === name);
+      if (!exists) {
+        const option = document.createElement("option");
+        option.value = name;
+        option.textContent = name;
+        activitySelect.appendChild(option);
+      }
+    }
+    card.innerHTML = buildCardHtml(name, details);
+  }
+
   // Function to fetch activities from API
   async function fetchActivities() {
     try {
@@ -13,27 +133,9 @@ document.addEventListener("DOMContentLoaded", () => {
       // Clear loading message
       activitiesList.innerHTML = "";
 
-      // Populate activities list
+      // Render all activities (initial load)
       Object.entries(activities).forEach(([name, details]) => {
-        const activityCard = document.createElement("div");
-        activityCard.className = "activity-card";
-
-        const spotsLeft = details.max_participants - details.participants.length;
-
-        activityCard.innerHTML = `
-          <h4>${name}</h4>
-          <p>${details.description}</p>
-          <p><strong>Schedule:</strong> ${details.schedule}</p>
-          <p><strong>Availability:</strong> ${spotsLeft} spots left</p>
-        `;
-
-        activitiesList.appendChild(activityCard);
-
-        // Add option to select dropdown
-        const option = document.createElement("option");
-        option.value = name;
-        option.textContent = name;
-        activitySelect.appendChild(option);
+        upsertActivityCard(name, details);
       });
     } catch (error) {
       activitiesList.innerHTML = "<p>Failed to load activities. Please try again later.</p>";
@@ -62,6 +164,21 @@ document.addEventListener("DOMContentLoaded", () => {
         messageDiv.textContent = result.message;
         messageDiv.className = "success";
         signupForm.reset();
+
+        // Update only the activity card that was signed up to
+        try {
+          const aResp = await fetch(`/activities/${encodeURIComponent(activity)}`);
+          if (aResp.ok) {
+            const details = await aResp.json();
+            upsertActivityCard(activity, details);
+          } else {
+            // Fallback: refresh all activities
+            await fetchActivities();
+          }
+        } catch (e) {
+          console.error("Failed to refresh single activity:", e);
+          await fetchActivities();
+        }
       } else {
         messageDiv.textContent = result.detail || "An error occurred";
         messageDiv.className = "error";
