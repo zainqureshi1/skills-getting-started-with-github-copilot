@@ -19,9 +19,26 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const participantsHtml =
       details.participants && details.participants.length
-        ? `<p><strong>Participants:</strong></p><ul>${details.participants
-            .map((p) => `<li>${escapeHtml(p)}</li>`)
-            .join("")}</ul>`
+        ? `<p><strong>Participants:</strong></p>
+          <ul class="participants-list">
+            ${details.participants
+              .map((p) => {
+                const local = p.split("@")[0] || "";
+                const initials = local
+                  .split(/[\.\-_]/)
+                  .map((s) => s.charAt(0))
+                  .join("")
+                  .slice(0, 2)
+                  .toUpperCase();
+                return `<li>
+                  <span class="participant-chip" title="${escapeHtml(p)}">
+                    <span class="avatar">${escapeHtml(initials)}</span>
+                    <span class="email-text">${escapeHtml(p)}</span>
+                  </span>
+                </li>`;
+              })
+              .join("")}
+          </ul>`
         : `<p><strong>Participants:</strong> None</p>`;
 
     return `
