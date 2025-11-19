@@ -3,6 +3,53 @@ document.addEventListener("DOMContentLoaded", () => {
   const activitySelect = document.getElementById("activity");
   const signupForm = document.getElementById("signup-form");
   const messageDiv = document.getElementById("message");
+
+  // Handle participant delete (unregister)
+  activitiesList.addEventListener("click", async (event) => {
+    const btn = event.target.closest(".delete-icon");
+    if (!btn) return;
+    const card = event.target.closest(".activity-card");
+    if (!card) return;
+    const activity = card.dataset.activity;
+    const email = btn.getAttribute("data-email");
+    if (!activity || !email) return;
+    btn.disabled = true;
+    btn.innerHTML = "...";
+    try {
+      const response = await fetch(`/activities/${encodeURIComponent(activity)}/unregister?email=${encodeURIComponent(email)}`, {
+        method: "POST",
+      });
+      const result = await response.json();
+      if (response.ok) {
+        messageDiv.textContent = result.message || "Participant removed.";
+        messageDiv.className = "success";
+        // Refresh the activity card
+        try {
+          const aResp = await fetch(`/activities/${encodeURIComponent(activity)}`);
+          if (aResp.ok) {
+            const details = await aResp.json();
+            upsertActivityCard(activity, details);
+          } else {
+            await fetchActivities();
+          }
+        } catch (e) {
+          await fetchActivities();
+        }
+      } else {
+        messageDiv.textContent = result.detail || "Failed to remove participant.";
+        messageDiv.className = "error";
+      }
+      messageDiv.classList.remove("hidden");
+      setTimeout(() => messageDiv.classList.add("hidden"), 5000);
+    } catch (error) {
+      messageDiv.textContent = "Error removing participant.";
+      messageDiv.className = "error";
+      messageDiv.classList.remove("hidden");
+    }
+    btn.disabled = false;
+    btn.innerHTML = "&#x2716;";
+  });
+
   // Helper to escape HTML (prevent XSS)
   function escapeHtml(str) {
     return String(str)
@@ -34,6 +81,7 @@ document.addEventListener("DOMContentLoaded", () => {
                   <span class="participant-chip" title="${escapeHtml(p)}">
                     <span class="avatar">${escapeHtml(initials)}</span>
                     <span class="email-text">${escapeHtml(p)}</span>
+                    <button class="delete-icon" title="Remove participant" data-email="${escapeHtml(p)}">&#x2716;</button>
                   </span>
                 </li>`;
               })
